@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-import subprocess, re, getopt, sys
+import subprocess, re, getopt, sys, json, os, shlex, time, platform
 
 
 def main():
@@ -9,13 +9,20 @@ def main():
         'pool=',
         'filesystem=',
         'snapshots=',
-        'backuphost='
+        'backuphost=',
+        'email='
     ]
 
     optList, bs = getopt.getopt(sys.argv[1:], '', options)
     getOpt = optFinder(optList)
 
     if getOpt.findKey('--pool') and getOpt.findKey('--backuphost'):
+    
+        # Set script name to be used later
+        scriptName = os.path.basename(sys.argv[0])
+        
+        # Set hostname for system identification
+        hostname = platform.node()
     
         # Get command line arguments
         getOpt.findKey('--pool')
@@ -29,6 +36,9 @@ def main():
         
         getOpt.findKey('--backuphost')
         backupHost = getOpt.optValue
+        
+        getOpt.findKey('--email')
+        emailAddress = getOpt.optValue
     
         # Base value for pool + filesystem combination
         snapshotBase = poolName
@@ -43,26 +53,108 @@ def main():
         output = output.split("\n")
 
         # Parse output to list
-        snapshots = []
+        localSnapshots = []
         snapshotSearchString = r'^' + snapshotBase + '@'
         for outputLine in output:
             if re.match(snapshotSearchString, outputLine):
                 snapshotName = outputLine.split(" ")[0]
-                snapshots.append(snapshotName)
+                localSnapshots.append(snapshotName)
 
-        # Create lock file to prevent multiple instances of same backup job
+        # Search for active processes with similar attributes to prevent running multiple instances
+        # of same job
         
+        psList = executeCommand(['ps', 'xauww']).split("\n")
+        myPid = str(os.getpid())
+        
+        for ps in psList:
+            if re.search(scriptName, ps):
+                pid = re.sub(r'\s+', " ", ps).split(" ")[1]
+                if pid != myPid:
+                    fp = open("/proc/" + pid + "/cmdline", "r")
+                    procfile = fp.read().split("\x00")
+                    fp.close()
+            
+                    if len(procfile) > 2:
+                        if procfile[0] == "python" and os.path.basename(procfile[1]) == scriptName:
+                    
+                            optList2, bs = getopt.getopt(sys.argv[1:], '', options)
+                            getOpt2 = optFinder(optList2)
+                        
+                            getOpt2.findKey("--pool")
+                            tPool = getOpt2.optValue
+                            getOpt2.findKey("--filesystem")
+                            tFilesystem = getOpt2.optValue
+                            if tPool == poolName and tFilesystem == filesystemName:
+                                sendMail(emailAddress, "Backup job cancelled (" + hostname + "): Duplicate job running", "Tried to run backup job but detected duplicate job\nAttempted command:\n" + " ".join(sys.argv))
+                                sys.exit(1)                    
+                
         # Create a new snapshot
         
+        snapshotTimestamp = time.strftime("%Y.%m.%d_%H.%M")
+        snapshotNameActual = snapshotBase + "@" + snapshotTimestamp        
+        
+        if filesystemName != "":
+            cmd = ['zfs', 'snapshot', snapshotNameActual]
+        else:
+            cmd = ['zfs', 'snapshot', '-r', snapshotNameActual]
+            
+        output = executeCommand(cmd)
+        
+        # See if pool exists at the destination machine
+        
+        cmd = ['ssh', backupHost, 'zfs', 'list']
+        output = executeCommand(cmd).split("\n")
+        poolExists = False
+        for outputLine in output:
+            rFilesystemName = re.sub(r'\s+', " ", outputLine).split(" ")[0]
+            if rFilesystemName == poolName:
+                poolExists = True
+        
+        if poolExists == False:
+            sys.exit(1)
+            sendEmail(emailAddress, "Backup job failed (" + hostname + "): Target pool does not exist on remote machine")
+        
+        # List remote snapshots to find snapshot to increment
+        cmd = ['ssh', backupHost, 'zfs', 'list', '-t', 'snapshot']
+
+        output = executeCommand(cmd).split("\n")
+        
+        remoteSnapshots = []
+        snapshotSearchString = r'^' + snapshotBase + '@'
+        for outputLine in output:
+            if re.match(snapshotSearchString, outputLine):
+                snapshotName = outputLine.split(" ")[0]
+                remoteSnapshots.append(snapshotName)
+        
+        # Find latest shared snapshot
+        fromSnapshot = ""
+        if len(remoteSnapshots) > 0:
+            fromSnapshot = remoteSnapshots[len(remoteSnapshots)-1]
+        
+        isIncremental = False
+        for snapshot in localSnapshots:
+            if snapshot == fromSnapshot:
+                isIncremental = True
+        
+        toSnapshot = localSnapshots[len(localSnapshots)-1]
+        
         # Send backup to the backup host
+        
+        if isIncremental:
+            cmd = ['zfs', 'send', '-i', fromSnapshot, toSnapshot, '|', 'ssh', backupHost, 'zfs', 'recv', snapshotBase]
+        else:
+            cmd = ['zfs', 'send', toSnapshot, '|', 'ssh', backupHost, 'zfs', 'recv', snapshotBase]
+
+        executeCommandS(cmd)
+        
+        
+        #cmd = ['zfs', 'send', snapshotNameActual, 
         
         # Prune local snapshots according to --snapshots argument
         
         # Get remote snapshots list
         
         # Prune remote snapshots according to --snapshots argument
-        
-        # Remove lock file
         
         
     else:
@@ -84,16 +176,40 @@ def main():
                 
         """
 
-def executeCommand(cmd):
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        output, errors = p.communicate()
+def sendMail(emailAddress, subject, body):
+    print """
+        To: %s
+        Subject: %s
+        Body: %s
+        """ % (emailAddress, subject, body)
 
-        if p.returncode != 0:
-            print "Error while executing zfs list -t snaphosts\n"
-            print errors
-            sys.exit(1)
-        else:
-            return output
+def executeCommand(cmd):
+
+    print ' '.join(cmd)
+
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    output, errors = p.communicate()
+
+    if p.returncode != 0:
+        print errors
+        sys.exit(1)
+    else:
+        return output
+
+
+def executeCommandS(cmd):
+    
+    cmd = ' '.join(cmd)
+    print cmd
+    
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+    output, errors = p.communicate()
+
+    if p.returncode != 0:
+        print errors
+        sys.exit(1)
+    else:
+        return output
 
     
 
