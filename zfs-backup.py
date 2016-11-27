@@ -32,7 +32,15 @@ def main():
         filesystemName = getOpt.optValue
         
         getOpt.findKey('--snapshots')
-        snapshotsNumber = getOpt.optValue
+        numSnapshots = getOpt.optValue
+        if numSnapshots != "":
+            try:
+                numSnapshots = int(numSnapshots)
+            except ValueError:
+                print "Error: Invalid --snapshots value"
+                sys.exit()
+        else:
+            numSnapshots = 5
         
         getOpt.findKey('--backuphost')
         backupHost = getOpt.optValue
@@ -46,19 +54,8 @@ def main():
             snapshotBase += "/" + filesystemName
     
         # Get local snapshot list
-        cmd = ['zfs', 'list', '-t', 'snapshot']
-        
-        output = executeCommand(cmd)
 
-        output = output.split("\n")
-
-        # Parse output to list
-        localSnapshots = []
-        snapshotSearchString = r'^' + snapshotBase + '@'
-        for outputLine in output:
-            if re.match(snapshotSearchString, outputLine):
-                snapshotName = outputLine.split(" ")[0]
-                localSnapshots.append(snapshotName)
+        localSnapshots = getSnapshots(snapshotBase)
 
         # Search for active processes with similar attributes to prevent running multiple instances
         # of same job
@@ -88,18 +85,6 @@ def main():
                                 sendMail(emailAddress, "Backup job cancelled (" + hostname + "): Duplicate job running", "Tried to run backup job but detected duplicate job\nAttempted command:\n" + " ".join(sys.argv))
                                 sys.exit(1)                    
                 
-        # Create a new snapshot
-        
-        snapshotTimestamp = time.strftime("%Y.%m.%d_%H.%M")
-        snapshotNameActual = snapshotBase + "@" + snapshotTimestamp        
-        
-        if filesystemName != "":
-            cmd = ['zfs', 'snapshot', snapshotNameActual]
-        else:
-            cmd = ['zfs', 'snapshot', '-r', snapshotNameActual]
-            
-        output = executeCommand(cmd)
-        
         # See if pool exists at the destination machine
         
         cmd = ['ssh', backupHost, 'zfs', 'list']
@@ -115,16 +100,7 @@ def main():
             sendEmail(emailAddress, "Backup job failed (" + hostname + "): Target pool does not exist on remote machine")
         
         # List remote snapshots to find snapshot to increment
-        cmd = ['ssh', backupHost, 'zfs', 'list', '-t', 'snapshot']
-
-        output = executeCommand(cmd).split("\n")
-        
-        remoteSnapshots = []
-        snapshotSearchString = r'^' + snapshotBase + '@'
-        for outputLine in output:
-            if re.match(snapshotSearchString, outputLine):
-                snapshotName = outputLine.split(" ")[0]
-                remoteSnapshots.append(snapshotName)
+        remoteSnapshots = getSnapshots(snapshotBase, backupHost)
         
         # Find latest shared snapshot
         fromSnapshot = ""
@@ -136,26 +112,52 @@ def main():
             if snapshot == fromSnapshot:
                 isIncremental = True
         
-        toSnapshot = localSnapshots[len(localSnapshots)-1]
+        # Create a new snapshot
         
+        snapshotTimestamp = time.strftime("%Y.%m.%d_%H.%M")
+        snapshotNameActual = snapshotBase + "@" + snapshotTimestamp
+        
+        if filesystemName != "":
+            cmd = ['zfs', 'snapshot', snapshotNameActual]
+        else:
+            cmd = ['zfs', 'snapshot', '-r', snapshotNameActual]
+            
+        output = executeCommand(cmd)
+
+
         # Send backup to the backup host
         
         if isIncremental:
-            cmd = ['zfs', 'send', '-i', fromSnapshot, toSnapshot, '|', 'ssh', backupHost, 'zfs', 'recv', snapshotBase]
+            cmd = ['zfs', 'send', '-i', fromSnapshot, snapshotNameActual, '|', 'ssh', backupHost, 'zfs', 'recv', snapshotBase]
         else:
-            cmd = ['zfs', 'send', toSnapshot, '|', 'ssh', backupHost, 'zfs', 'recv', snapshotBase]
+            cmd = ['zfs', 'send', snapshotNameActual, '|', 'ssh', backupHost, 'zfs', 'recv', snapshotBase]
 
-        executeCommandS(cmd)
+        executeCommandS(cmd) # Notice S for shell
         
+        # Update snapshot information
         
-        #cmd = ['zfs', 'send', snapshotNameActual, 
+        localSnapshots = getSnapshots(snapshotBase)
+        remoteSnapshots = getSnapshots(snapshotBase, backupHost)
         
         # Prune local snapshots according to --snapshots argument
         
-        # Get remote snapshots list
+        if len(localSnapshots) > numSnapshots:
+            numDelete = len(localSnapshots) - numSnapshots
+            for idx in range(0, numDelete):
+                deleteSnapshot = localSnapshots[idx]
+                cmd = ['zfs', 'destroy', deleteSnapshot]
+                executeCommand(cmd)
+
+        # Prune remote snapshots according to --snapshot argument
+
+        if len(remoteSnapshots) > numSnapshots:
+            numDelete = len(remoteSnapshots) - numSnapshots
+            for idx in range(0, numDelete):
+                deleteSnapshot = remoteSnapshots[idx]
+                cmd = ['ssh', backupHost, 'zfs', 'destroy', deleteSnapshot]
+                executeCommand(cmd)
         
-        # Prune remote snapshots according to --snapshots argument
-        
+        # Hopefylly done!
         
     else:
         print """
@@ -174,7 +176,31 @@ def main():
                 Number of snapshots to keep
                 Default: 10
                 
+            --email user@host (optional)
+                Send job related messages as email
+                
         """
+
+def getSnapshots(snapshotBase, backupHost=""):
+
+    if backupHost != "":
+        cmd = ['ssh', backupHost, 'zfs', 'list', '-t', 'snapshot']
+    else:
+        cmd = ['zfs', 'list', '-t', 'snapshot']    
+        
+    output = executeCommand(cmd)
+
+    output = output.split("\n")
+
+    # Parse output to list
+    snapshots = []
+    snapshotSearchString = r'^' + snapshotBase + '@'
+    for outputLine in output:
+        if re.match(snapshotSearchString, outputLine):
+            snapshotName = outputLine.split(" ")[0]
+            snapshots.append(snapshotName)
+
+    return snapshots
 
 def sendMail(emailAddress, subject, body):
     print """
