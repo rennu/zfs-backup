@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-import subprocess, re, getopt, sys, json, os, shlex, time, platform
+import subprocess, re, getopt, sys, json, os, time, platform
 
 debug = False
 
@@ -34,8 +34,9 @@ def main():
         getOpt.findKey('--pool')
         poolName = getOpt.optValue
 
-        getOpt.findKey('--targetpool')
-        targetPoolName = getOpt.optValue
+        targetPoolName = poolName
+        if getOpt.findKey('--targetpool'):
+            targetPoolName = getOpt.optValue
         
         getOpt.findKey('--filesystem')
         filesystemName = getOpt.optValue
@@ -61,17 +62,17 @@ def main():
             debug = True
     
         # Base value for pool + filesystem combination
-        snapshotBase = poolName
+        localSnapshotBase = poolName
+        remoteSnapshotBase = targetPoolName
         if filesystemName != "":
-            snapshotBase += "/" + filesystemName
+            localSnapshotBase += "/" + filesystemName
+            remoteSnapshotBase += "/" + filesystemName
     
         # Get local snapshot list
-
-        localSnapshots = getSnapshots(snapshotBase)
+        localSnapshots = getSnapshots(localSnapshotBase)
 
         # Search for active processes with similar attributes to prevent running multiple instances
-        # of same job
-        
+        # of same job (ie. when running script automatically by crontab)
         psList = executeCommand(['ps', 'xauww']).split("\n")
         myPid = str(os.getpid())
         
@@ -97,24 +98,23 @@ def main():
                                 sendMail(emailAddress, "Backup job cancelled (" + hostname + "): Duplicate job running", "Tried to run backup job but detected duplicate job\nAttempted command:\n" + " ".join(sys.argv))
                                 sys.exit(1)                    
                 
-        # See if pool exists at the destination machine
-        
+        # See if pool exists at the destination machine        
         cmd = ['ssh', backupHost, 'zfs', 'list']
         output = executeCommand(cmd).split("\n")
         poolExists = False
         for outputLine in output:
-            rFilesystemName = re.sub(r'\s+', " ", outputLine).split(" ")[0]
-            if rFilesystemName == poolName:
+            rPoolName = re.sub(r'\s+', " ", outputLine).split(" ")[0]
+            if rPoolName == targetPoolName:
                 poolExists = True
         
         if poolExists == False:
-            sendMail(emailAddress, "Backup job failed (" + hostname + "): Target pool does not exist on remote machine", "Could not find target pool " + poolName + " on backup target " + backupHost)
+            sendMail(emailAddress, "Backup job failed (" + hostname + "): Target pool (" + targetPoolName + ") does not exist on remote machine", "Could not find target pool " + targetPoolName + " on backup target " + backupHost)
             sys.exit(1)
             
         # List remote snapshots to find snapshot to increment
-        remoteSnapshots = getSnapshots(snapshotBase, backupHost)
+        remoteSnapshots = getSnapshots(remoteSnapshotBase, backupHost)
         
-        # Find latest shared snapshot
+        # Find latest shared snapshot (zfs list -t snapshots list snapshots in ascending time order)
         fromSnapshot = ""
         if len(remoteSnapshots) > 0:
             fromSnapshot = remoteSnapshots[len(remoteSnapshots)-1]
@@ -125,9 +125,8 @@ def main():
                 isIncremental = True
         
         # Create a new snapshot
-        
         snapshotTimestamp = time.strftime("%Y.%m.%d_%H.%M")
-        snapshotNameActual = snapshotBase + "@" + snapshotTimestamp
+        snapshotNameActual = localSnapshotBase + "@" + snapshotTimestamp
         
         if filesystemName != "":
             cmd = ['zfs', 'snapshot', snapshotNameActual]
@@ -138,35 +137,31 @@ def main():
 
 
         # Send backup to the backup host
-        
         if isIncremental:
-            cmd = ['zfs', 'send', '-i', fromSnapshot, snapshotNameActual, '|', 'ssh', backupHost, 'zfs', 'recv', snapshotBase]
+            cmd = ['zfs', 'send', '-i', fromSnapshot, snapshotNameActual, '|', 'ssh', backupHost, 'zfs', 'recv', remoteSnapshotBase]
         else:
-            cmd = ['zfs', 'send', snapshotNameActual, '|', 'ssh', backupHost, 'zfs', 'recv', snapshotBase]
+            cmd = ['zfs', 'send', snapshotNameActual, '|', 'ssh', backupHost, 'zfs', 'recv', remoteSnapshotBase]
 
         executeCommandS(cmd) # Notice S for shell
         
         # Update snapshot information
-        
-        localSnapshots = getSnapshots(snapshotBase)
-        remoteSnapshots = getSnapshots(snapshotBase, backupHost)
+        localSnapshots = getSnapshots(localSnapshotBase)
+        remoteSnapshots = getSnapshots(remoteSnapshotBase, backupHost)
         
         # Prune local snapshots according to --snapshots argument
-        
         if len(localSnapshots) > numSnapshots:
             numDelete = len(localSnapshots) - numSnapshots
             for idx in range(0, numDelete):
-                deleteSnapshot = localSnapshots[idx]
-                cmd = ['zfs', 'destroy', deleteSnapshot]
+                destroySnapshot = localSnapshots[idx]
+                cmd = ['zfs', 'destroy', destroySnapshot]
                 executeCommand(cmd)
 
         # Prune remote snapshots according to --snapshot argument
-
         if len(remoteSnapshots) > numSnapshots:
             numDelete = len(remoteSnapshots) - numSnapshots
             for idx in range(0, numDelete):
-                deleteSnapshot = remoteSnapshots[idx]
-                cmd = ['ssh', backupHost, 'zfs', 'destroy', deleteSnapshot]
+                destroySnapshot = remoteSnapshots[idx]
+                cmd = ['ssh', backupHost, 'zfs', 'destroy', destroySnapshot]
                 executeCommand(cmd)
         
         # Hopefylly done!
@@ -177,6 +172,9 @@ def main():
             
             --pool [string]
                 Pool to backup ie. tank
+            
+            --targetpool [string] (optional)
+                On target host use different pool name
                 
             --backuphost [username@hostname]
                 Also, you need to be able to login using ssh private key
