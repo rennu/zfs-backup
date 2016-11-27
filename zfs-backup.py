@@ -2,15 +2,20 @@
 
 import subprocess, re, getopt, sys, json, os, shlex, time, platform
 
+debug = False
 
 def main():
 
+    global debug
+
     options = [
         'pool=',
+        'targetpool=',
         'filesystem=',
         'snapshots=',
         'backuphost=',
-        'email='
+        'email=',
+        'debug'
     ]
 
     optList, bs = getopt.getopt(sys.argv[1:], '', options)
@@ -25,8 +30,12 @@ def main():
         hostname = platform.node()
     
         # Get command line arguments
+
         getOpt.findKey('--pool')
         poolName = getOpt.optValue
+
+        getOpt.findKey('--targetpool')
+        targetPoolName = getOpt.optValue
         
         getOpt.findKey('--filesystem')
         filesystemName = getOpt.optValue
@@ -47,6 +56,9 @@ def main():
         
         getOpt.findKey('--email')
         emailAddress = getOpt.optValue
+
+        if getOpt.findKey('--debug'):
+            debug = True
     
         # Base value for pool + filesystem combination
         snapshotBase = poolName
@@ -96,9 +108,9 @@ def main():
                 poolExists = True
         
         if poolExists == False:
+            sendMail(emailAddress, "Backup job failed (" + hostname + "): Target pool does not exist on remote machine", "Could not find target pool " + poolName + " on backup target " + backupHost)
             sys.exit(1)
-            sendEmail(emailAddress, "Backup job failed (" + hostname + "): Target pool does not exist on remote machine")
-        
+            
         # List remote snapshots to find snapshot to increment
         remoteSnapshots = getSnapshots(snapshotBase, backupHost)
         
@@ -178,7 +190,10 @@ def main():
                 
             --email user@host (optional)
                 Send job related messages as email
-                
+            
+            --debug
+                Output all commands
+            
         """
 
 def getSnapshots(snapshotBase, backupHost=""):
@@ -211,7 +226,8 @@ def sendMail(emailAddress, subject, body):
 
 def executeCommand(cmd):
 
-    print ' '.join(cmd)
+    if debug == True:
+        print ' '.join(cmd)
 
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     output, errors = p.communicate()
@@ -226,7 +242,9 @@ def executeCommand(cmd):
 def executeCommandS(cmd):
     
     cmd = ' '.join(cmd)
-    print cmd
+
+    if debug == True:
+        print cmd
     
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
     output, errors = p.communicate()
