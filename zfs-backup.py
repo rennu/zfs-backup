@@ -3,10 +3,13 @@
 import subprocess, re, getopt, sys, json, os, time, platform
 
 debug = False
+emailAddress = ""
+hostname = platform.node()
 
 def main():
 
     global debug
+    global emailAddress
 
     options = [
         'pool=',
@@ -26,15 +29,12 @@ def main():
         # Set script name to be used later
         scriptName = os.path.basename(sys.argv[0])
         
-        # Set hostname for system identification
-        hostname = platform.node()
-    
         # Get command line arguments
 
         getOpt.findKey('--pool')
-        poolName = getOpt.optValue
+        localPoolName = getOpt.optValue
 
-        targetPoolName = poolName
+        targetPoolName = localPoolName
         if getOpt.findKey('--targetpool'):
             targetPoolName = getOpt.optValue
         
@@ -62,7 +62,7 @@ def main():
             debug = True
     
         # Base value for pool + filesystem combination
-        localSnapshotBase = poolName
+        localSnapshotBase = localPoolName
         remoteSnapshotBase = targetPoolName
         if filesystemName != "":
             localSnapshotBase += "/" + filesystemName
@@ -94,8 +94,8 @@ def main():
                             tPool = getOpt2.optValue
                             getOpt2.findKey("--filesystem")
                             tFilesystem = getOpt2.optValue
-                            if tPool == poolName and tFilesystem == filesystemName:
-                                sendMail(emailAddress, "Backup job cancelled (" + hostname + "): Duplicate job running", "Tried to run backup job but detected duplicate job\nAttempted command:\n" + " ".join(sys.argv))
+                            if tPool == localPoolName and tFilesystem == filesystemName:
+                                logError("Backup job cancelled (" + hostname + "): Duplicate job running", "Tried to run backup job but detected duplicate job\nAttempted command:\n" + " ".join(sys.argv))
                                 sys.exit(1)                    
                 
         # See if pool exists at the destination machine        
@@ -108,7 +108,7 @@ def main():
                 poolExists = True
         
         if poolExists == False:
-            sendMail(emailAddress, "Backup job failed (" + hostname + "): Target pool (" + targetPoolName + ") does not exist on remote machine", "Could not find target pool " + targetPoolName + " on backup target " + backupHost)
+            logError("Backup job failed (" + hostname + "): Target pool (" + targetPoolName + ") does not exist on remote machine", "Could not find target pool " + targetPoolName + " on backup target " + backupHost)
             sys.exit(1)
             
         # List remote snapshots to find snapshot to increment
@@ -135,14 +135,13 @@ def main():
             
         output = executeCommand(cmd)
 
-
         # Send backup to the backup host
         if isIncremental:
             cmd = ['zfs', 'send', '-i', fromSnapshot, snapshotNameActual, '|', 'ssh', backupHost, 'zfs', 'recv', remoteSnapshotBase]
         else:
             cmd = ['zfs', 'send', snapshotNameActual, '|', 'ssh', backupHost, 'zfs', 'recv', remoteSnapshotBase]
 
-        executeCommandS(cmd) # Notice S for shell
+        executeCommand(cmd, True) # Notice S for shell
         
         # Update snapshot information
         localSnapshots = getSnapshots(localSnapshotBase)
@@ -215,6 +214,11 @@ def getSnapshots(snapshotBase, backupHost=""):
 
     return snapshots
 
+def logError(title, body):
+    sendMail(emailAddress, title, body)
+    print title
+    print body
+
 def sendMail(emailAddress, subject, body):
     print """
         To: %s
@@ -222,38 +226,31 @@ def sendMail(emailAddress, subject, body):
         Body: %s
         """ % (emailAddress, subject, body)
 
-def executeCommand(cmd):
+# Set shell = True when Popen shell=True is required
+def executeCommand(cmd, shell = False):
+
+    cmdJoined = ' '.join(cmd)
 
     if debug == True:
-        print ' '.join(cmd)
+        print cmdJoined
 
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        if shell == False:
+            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        else:
+            p = subprocess.Popen(cmdJoined, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+
+    except OSError as e:
+        logError("Backup failed (" + hostname + ")", "Could not execute command:\"" + cmdJoined + "\n" + str(e))
+        sys.exit(1)
+        
     output, errors = p.communicate()
 
     if p.returncode != 0:
-        print errors
+        logError("Backup failed (" + hostname + ")", "Could not execute command:\n" + cmdJoined + "\n\nOutput:\n" + errors)
         sys.exit(1)
     else:
         return output
-
-
-def executeCommandS(cmd):
-    
-    cmd = ' '.join(cmd)
-
-    if debug == True:
-        print cmd
-    
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
-    output, errors = p.communicate()
-
-    if p.returncode != 0:
-        print errors
-        sys.exit(1)
-    else:
-        return output
-
-    
 
 # Fugly command line option finder
 class optFinder:
