@@ -1,15 +1,22 @@
 #!/usr/bin/python
 
-import subprocess, re, getopt, sys, json, os, time, platform
+import subprocess, re, getopt, sys, json, os, time, platform, smtplib
+from email.mime.text import MIMEText
 
 debug = False
 emailAddress = ""
 hostname = platform.node()
+smtpServer = "localhost"
+sender = "zfsbackup@" + hostname
+numSnapshots = 10
 
 def main():
 
     global debug
     global emailAddress
+    global smtpServer
+    global sender
+    global numSnapshots
 
     options = [
         'pool=',
@@ -18,6 +25,8 @@ def main():
         'snapshots=',
         'backuphost=',
         'email=',
+        'smtp=',
+        'sender=',
         'debug'
     ]
 
@@ -40,22 +49,28 @@ def main():
         getOpt.findKey('--filesystem')
         filesystemName = getOpt.optValue
         
-        getOpt.findKey('--snapshots')
-        numSnapshots = getOpt.optValue
-        if numSnapshots != "":
-            try:
-                numSnapshots = int(numSnapshots)
-            except ValueError:
-                print "Error: Invalid --snapshots value"
-                sys.exit()
-        else:
-            numSnapshots = 5
+        if getOpt.findKey('--snapshots'):
+            numSnapshots = getOpt.optValue
+            if numSnapshots != "":
+                try:
+                    numSnapshots = int(numSnapshots)
+                except ValueError:
+                    print "Error: Invalid --snapshots value"
+                    sys.exit()
+            else:
+                numSnapshots = 10
         
         getOpt.findKey('--backuphost')
         backupHost = getOpt.optValue
         
         getOpt.findKey('--email')
         emailAddress = getOpt.optValue
+
+        if getOpt.findKey('--smtp'):
+            smtpServer = getOpt.optValue
+
+        if getOpt.findKey('--sender'):
+            sender = getOpt.optValue
 
         if getOpt.findKey('--debug'):
             debug = True
@@ -66,7 +81,20 @@ def main():
         if filesystemName != "":
             localSnapshotBase += "/" + filesystemName
             remoteSnapshotBase += "/" + filesystemName
+
+        # Does localSnapshotBase actually exist?
+        output = executeCommand(['zfs', 'list']).split("\n")
+        localSnapshotBaseExists = False
+        for filesystem in output:
+            filesystem = re.sub("\s+", " ", filesystem).split(" ")[0]
+            matchString = r'^' + localSnapshotBase + '$'
+            if re.match(matchString, filesystem):
+                localSnapshotBaseExists = True
     
+        if localSnapshotBaseExists == False:
+            logError("Backup job failed (" + hostname + ")", "Local snapshot filesystem / pool (" + localSnapshotBase + ") does not exist")
+            sys.exit()
+        
         # Get local snapshot list
         localSnapshots = getSnapshots(localSnapshotBase)
 
@@ -186,6 +214,14 @@ def main():
                 
             --email user@host (optional)
                 Send job related messages as email
+
+            --sender foo@bar
+                Email sender address
+                Default: zfsbackup@$hostname
+                
+            --smtp hostname (optional)
+                SMTP server address
+                Default: localhost
             
             --debug
                 Output all commands
