@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-import subprocess, re, getopt, sys, json, os, time, platform, smtplib
+import subprocess, re, getopt, sys, json, os, time, platform, smtplib, math
 from email.mime.text import MIMEText
 
 debug = False
@@ -17,6 +17,8 @@ def main():
     global smtpServer
     global sender
     global numSnapshots
+
+    jobStartTime = int(time.time())
 
     options = [
         'pool=',
@@ -191,6 +193,15 @@ def main():
                 executeCommand(cmd)
         
         # Hopefylly done!
+        jobEndTime = int(time.time())
+        timeDifference = jobEndTime - jobStartTime
+        hours = math.floor(timeDifference / 60 / 60)
+        minutes = math.floor((timeDifference - hours * 60 * 60) / 60)
+        seconds = math.floor(timeDifference - (hours * 60 * 60 + minutes * 60))
+
+        timeUsed = str(int(hours)) + "h " + str(int(minutes)) + "m " + str(int(seconds)) + "s"
+
+        logError("Backup job completed successfully (" + hostname + ")", "Completed backup job on " + hostname + "\n\nBackup filesystem: " + localSnapshotBase + "\nSnapshot name: " + snapshotNameActual + "\nTask completion time: " + timeUsed)
         
     else:
         print """
@@ -258,11 +269,24 @@ def logError(title, body):
 
 # ...
 def sendMail(emailAddress, subject, body):
-    print """
-        To: %s
-        Subject: %s
-        Body: %s
-        """ % (emailAddress, subject, body)
+
+    if debug:
+        print """
+To: %s
+Subject: %s
+Body: %s
+""" % (emailAddress, subject, body)
+
+    msg = MIMEText(body)
+    msg['Subject'] = subject
+    msg['From'] = sender
+    msg['To'] = emailAddress
+    
+    smtp = smtplib.SMTP(smtpServer)
+    smtp.sendmail(sender, [emailAddress], msg.as_string())
+    smtp.quit()
+
+
 
 # Set shell = True when Popen shell=True is required
 def executeCommand(cmd, shell = False):
