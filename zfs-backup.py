@@ -30,7 +30,6 @@ def main():
         scriptName = os.path.basename(sys.argv[0])
         
         # Get command line arguments
-
         getOpt.findKey('--pool')
         localPoolName = getOpt.optValue
 
@@ -193,6 +192,7 @@ def main():
             
         """
 
+# Get list of snapshots as a list
 def getSnapshots(snapshotBase, backupHost=""):
 
     if backupHost != "":
@@ -214,11 +214,13 @@ def getSnapshots(snapshotBase, backupHost=""):
 
     return snapshots
 
+# Log errors, duh?
 def logError(title, body):
     sendMail(emailAddress, title, body)
     print title
     print body
 
+# ...
 def sendMail(emailAddress, subject, body):
     print """
         To: %s
@@ -269,6 +271,5 @@ class optFinder:
                 return True
                 
         return False
-        
         
 main()
