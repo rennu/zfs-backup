@@ -263,9 +263,11 @@ def getSnapshots(snapshotBase, backupHost=""):
 
 # Log errors, duh?
 def logError(title, body):
-    sendMail(emailAddress, title, body)
-    print title
-    print body
+    if emailAddress != "":
+        sendMail(emailAddress, title, body)
+    else:
+        print title
+        print body
 
 # ...
 def sendMail(emailAddress, subject, body):
@@ -283,7 +285,7 @@ Body: %s
     msg['To'] = emailAddress
     
     smtp = smtplib.SMTP(smtpServer)
-    smtp.sendmail(sender, [emailAddress], msg.as_string())
+    smtp.sendmail(sender, emailAddress.split(";"), msg.as_string())
     smtp.quit()
 
 
