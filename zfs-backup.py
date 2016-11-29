@@ -1,5 +1,8 @@
 #!/usr/bin/python
 
+zfsBin = "/sbin/zfs"
+sshBin = "/usr/bin/ssh"
+
 import subprocess, re, getopt, sys, json, os, time, platform, smtplib, math
 from email.mime.text import MIMEText
 
@@ -85,7 +88,7 @@ def main():
             remoteSnapshotBase += "/" + filesystemName
 
         # Does localSnapshotBase actually exist?
-        output = executeCommand(['zfs', 'list']).split("\n")
+        output = executeCommand([zfsBin, 'list']).split("\n")
         localSnapshotBaseExists = False
         for filesystem in output:
             filesystem = re.sub("\s+", " ", filesystem).split(" ")[0]
@@ -128,7 +131,7 @@ def main():
                                 sys.exit(1)                    
                 
         # See if pool exists at the destination machine        
-        cmd = ['ssh', backupHost, 'zfs', 'list']
+        cmd = [sshBin, backupHost, 'zfs', 'list']
         output = executeCommand(cmd).split("\n")
         poolExists = False
         for outputLine in output:
@@ -158,17 +161,17 @@ def main():
         snapshotNameActual = localSnapshotBase + "@" + snapshotTimestamp
         
         if filesystemName != "":
-            cmd = ['zfs', 'snapshot', snapshotNameActual]
+            cmd = [zfsBin, 'snapshot', snapshotNameActual]
         else:
-            cmd = ['zfs', 'snapshot', '-r', snapshotNameActual]
+            cmd = [zfsBin, 'snapshot', '-r', snapshotNameActual]
             
         output = executeCommand(cmd)
 
         # Send backup to the backup host
         if isIncremental:
-            cmd = ['zfs', 'send', '-i', fromSnapshot, snapshotNameActual, '|', 'ssh', backupHost, 'zfs', 'recv', remoteSnapshotBase]
+            cmd = [zfsBin, 'send', '-i', fromSnapshot, snapshotNameActual, '|', sshBin, backupHost, 'zfs', 'recv', remoteSnapshotBase]
         else:
-            cmd = ['zfs', 'send', snapshotNameActual, '|', 'ssh', backupHost, 'zfs', 'recv', remoteSnapshotBase]
+            cmd = [zfsBin, 'send', snapshotNameActual, '|', sshBin, backupHost, 'zfs', 'recv', remoteSnapshotBase]
 
         executeCommand(cmd, True) # Notice S for shell
         
@@ -181,7 +184,7 @@ def main():
             numDelete = len(localSnapshots) - numSnapshots
             for idx in range(0, numDelete):
                 destroySnapshot = localSnapshots[idx]
-                cmd = ['zfs', 'destroy', destroySnapshot]
+                cmd = [zfsBin, 'destroy', destroySnapshot]
                 executeCommand(cmd)
 
         # Prune remote snapshots according to --snapshot argument
@@ -189,7 +192,7 @@ def main():
             numDelete = len(remoteSnapshots) - numSnapshots
             for idx in range(0, numDelete):
                 destroySnapshot = remoteSnapshots[idx]
-                cmd = ['ssh', backupHost, 'zfs', 'destroy', destroySnapshot]
+                cmd = [sshBin, backupHost, 'zfs', 'destroy', destroySnapshot]
                 executeCommand(cmd)
         
         # Hopefylly done!
@@ -223,7 +226,7 @@ def main():
                 Number of snapshots to keep
                 Default: 10
                 
-            --email user@host (optional)
+            --email user@host;user2@host2 (optional)
                 Send job related messages as email
 
             --sender foo@bar
@@ -243,9 +246,9 @@ def main():
 def getSnapshots(snapshotBase, backupHost=""):
 
     if backupHost != "":
-        cmd = ['ssh', backupHost, 'zfs', 'list', '-t', 'snapshot']
+        cmd = [sshBin, backupHost, 'zfs', 'list', '-t', 'snapshot']
     else:
-        cmd = ['zfs', 'list', '-t', 'snapshot']    
+        cmd = [zfsBin, 'list', '-t', 'snapshot']    
         
     output = executeCommand(cmd)
 
