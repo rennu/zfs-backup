@@ -131,7 +131,7 @@ def main():
                                 sys.exit(1)                    
                 
         # See if pool exists at the destination machine        
-        cmd = [sshBin, backupHost, 'zfs', 'list']
+        cmd = [sshBin, "-o", '"StrictHostKeyChecking no"', backupHost, 'zfs', 'list']
         output = executeCommand(cmd).split("\n")
         poolExists = False
         for outputLine in output:
@@ -169,9 +169,9 @@ def main():
 
         # Send backup to the backup host
         if isIncremental:
-            cmd = [zfsBin, 'send', '-i', fromSnapshot, snapshotNameActual, '|', sshBin, backupHost, 'zfs', 'recv', remoteSnapshotBase]
+            cmd = [zfsBin, 'send', '-i', fromSnapshot, snapshotNameActual, '|', sshBin, "-o", '"StrictHostKeyChecking no"', backupHost, 'zfs', 'recv', remoteSnapshotBase]
         else:
-            cmd = [zfsBin, 'send', snapshotNameActual, '|', sshBin, backupHost, 'zfs', 'recv', remoteSnapshotBase]
+            cmd = [zfsBin, 'send', snapshotNameActual, '|', sshBin, "-o", '"StrictHostKeyChecking no"', backupHost, 'zfs', 'recv', remoteSnapshotBase]
 
         executeCommand(cmd, True) # Notice S for shell
         
@@ -192,7 +192,7 @@ def main():
             numDelete = len(remoteSnapshots) - numSnapshots
             for idx in range(0, numDelete):
                 destroySnapshot = remoteSnapshots[idx]
-                cmd = [sshBin, backupHost, 'zfs', 'destroy', destroySnapshot]
+                cmd = [sshBin, "-o", '"StrictHostKeyChecking no"', backupHost, 'zfs', 'destroy', destroySnapshot]
                 executeCommand(cmd)
         
         # Hopefylly done!
