@@ -131,7 +131,7 @@ def main():
                                 sys.exit(1)                    
                 
         # See if pool exists at the destination machine        
-        cmd = [sshBin, "-o", '"StrictHostKeyChecking no"', backupHost, 'zfs', 'list']
+        cmd = [sshBin, "-o", 'StrictHostKeyChecking no', backupHost, 'zfs', 'list']
         output = executeCommand(cmd).split("\n")
         poolExists = False
         for outputLine in output:
@@ -192,7 +192,7 @@ def main():
             numDelete = len(remoteSnapshots) - numSnapshots
             for idx in range(0, numDelete):
                 destroySnapshot = remoteSnapshots[idx]
-                cmd = [sshBin, "-o", '"StrictHostKeyChecking no"', backupHost, 'zfs', 'destroy', destroySnapshot]
+                cmd = [sshBin, "-o", 'StrictHostKeyChecking no', backupHost, 'zfs', 'destroy', destroySnapshot]
                 executeCommand(cmd)
         
         # Hopefylly done!
@@ -204,7 +204,7 @@ def main():
 
         timeUsed = str(int(hours)) + "h " + str(int(minutes)) + "m " + str(int(seconds)) + "s"
 
-        logError("Backup job completed successfully (" + hostname + ")", "Completed backup job on " + hostname + "\n\nBackup filesystem: " + localSnapshotBase + "\nSnapshot name: " + snapshotNameActual + "\nTask completion time: " + timeUsed)
+        logError("Backup job completed successfully (" + hostname + ")", "Completed backing up on " + hostname + "\n\nBackup filesystem: " + localSnapshotBase + "\nSnapshot name: " + snapshotNameActual + "\nTask completion time: " + timeUsed)
         
     else:
         print """
