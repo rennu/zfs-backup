@@ -12,8 +12,10 @@ Simple ZFS incremental snaphot to remote host script with prune and job reportin
     ```ssh-keygen -b 4096```
 3. Add the public key to Your backup target hosts authorized_keys
 4. Allow root to login over ssh only by using the created key
+
     ```PermitRootLogin prohibit-password```
 5. Create crontab job ie. backup filesystem "materials" from pool "tank" to host  "backup-server" every 2nd hour. Remove snapshots after 360/(24/2) = 30 days. Send success/error messages to admin@example.com
+
     ```0 */2 * * * /usr/bin/python /home/zfssnapshots/zfs-snapshots/zfs-snapshots.py --pool tank --filesystem materials --snapshots 360 --backuphost root@backup-server --email admin@example.com```
 
 ## Arguments
