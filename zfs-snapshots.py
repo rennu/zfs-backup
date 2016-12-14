@@ -12,6 +12,7 @@ hostname = platform.node()
 smtpServer = "localhost"
 sender = "zfsbackup@" + hostname
 numSnapshots = 10
+onlyErrors = False
 
 def main():
 
@@ -20,6 +21,7 @@ def main():
     global smtpServer
     global sender
     global numSnapshots
+    global onlyErrors
 
     jobStartTime = int(time.time())
 
@@ -32,7 +34,8 @@ def main():
         'email=',
         'smtp=',
         'sender=',
-        'debug'
+        'debug',
+        'only-errors'
     ]
 
     optList, bs = getopt.getopt(sys.argv[1:], '', options)
@@ -79,6 +82,9 @@ def main():
 
         if getOpt.findKey('--debug'):
             debug = True
+        
+        if getOpt.findKey('--only-errors'):
+            onlyErrors = True
     
         # Base value for pool + filesystem combination
         localSnapshotBase = localPoolName
@@ -204,7 +210,7 @@ def main():
 
         timeUsed = str(int(hours)) + "h " + str(int(minutes)) + "m " + str(int(seconds)) + "s"
 
-        logError("Backup job completed successfully (" + hostname + ")", "Completed backing up on " + hostname + "\n\nBackup filesystem: " + localSnapshotBase + "\nSnapshot name: " + snapshotNameActual + "\nTask completion time: " + timeUsed)
+        logError("Backup job completed successfully (" + hostname + ")", "Completed backing up on " + hostname + "\n\nBackup filesystem: " + localSnapshotBase + "\nSnapshot name: " + snapshotNameActual + "\nTask completion time: " + timeUsed, True)
         
     else:
         print """
@@ -236,6 +242,9 @@ def main():
             --smtp hostname (optional)
                 SMTP server address
                 Default: localhost
+
+            --only-errors
+                Only send a job report if job has failed
             
             --debug
                 Output all commands
@@ -265,9 +274,11 @@ def getSnapshots(snapshotBase, backupHost=""):
     return snapshots
 
 # Log errors, duh?
-def logError(title, body):
+def logError(title, body, isSuccess = False):
+    
     if emailAddress != "":
-        sendMail(emailAddress, title, body)
+        if (onlyErrors == True and isSuccess == False) or onlyErrors == False:
+            sendMail(emailAddress, title, body)
     else:
         print title
         print body

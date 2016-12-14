@@ -2,10 +2,6 @@
 
 Simple ZFS incremental snaphot to remote host script with prune and job reporting.
 
-## Todo
-* ```--only-errors```
-    * Only report errors...
-
 ## Install
 1. Download the script from https://github.com/rennu/zfs-snapshots
 2. Create a private key on backup source host
@@ -43,6 +39,9 @@ Simple ZFS incremental snaphot to remote host script with prune and job reportin
     --smtp hostname (optional)
         SMTP server address
         Default: localhost
+
+    --only-errors
+        Only send a job report if job has failed
     
     --debug
         Output all commands
