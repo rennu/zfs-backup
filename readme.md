@@ -17,15 +17,26 @@ Simple ZFS incremental backup to remote host script with prune and job reporting
     ```0 */2 * * * /usr/bin/python /opt/zfs-backup/zfs-backup.py --pool tank --filesystem materials --snapshots 360 --backuphost root@backup-server --email admin@example.com```
 
     **--pool tank**
+    
     Name of the pool to be backed up (tank)
+
+
     **--filesystem materials**
+
     Name of the filesystem to be backed up (materials)
+
     **--snapshots 360**
+
     Keep 360 snapshots and automatically delete older ones
+
     **--backuphost root@backup-server**
+
     Username and host of the backup target host
+
     **--email admin@example.com**
+
     Address where job reports are sent
+
 
 ## Arguments
     --pool [string]
