@@ -12,9 +12,20 @@ Simple ZFS incremental backup to remote host script with prune and job reporting
 5. Allow root to login over ssh only by using the created key
 
     ```PermitRootLogin prohibit-password```
-6. Create crontab job ie. backup filesystem "materials" from pool "tank" to host  "backup-server" every 2nd hour. Remove snapshots after 360/(24/2) = 30 days. Send success/error messages to admin@example.com
+6. Create crontab job, set the backup script to be run every 2nd hour
 
     ```0 */2 * * * /usr/bin/python /opt/zfs-backup/zfs-backup.py --pool tank --filesystem materials --snapshots 360 --backuphost root@backup-server --email admin@example.com```
+
+    **--pool tank**
+    Name of the pool to be backed up (tank)
+    **--filesystem materials**
+    Name of the filesystem to be backed up (materials)
+    **--snapshots 360**
+    Keep 360 snapshots and automatically delete older ones
+    **--backuphost root@backup-server**
+    Username and host of the backup target host
+    **--email admin@example.com**
+    Address where job reports are sent
 
 ## Arguments
     --pool [string]
