@@ -1,18 +1,20 @@
-# ZFS Snapshot Script
+# ZFS Backup Script
 
-Simple ZFS incremental snaphot to remote host script with prune and job reporting.
+Simple ZFS incremental backup to remote host script with prune and job reporting.
 
 ## Install
-1. Download the script from https://github.com/rennu/zfs-snapshots
+1. Download the script from https://github.com/rennu/zfs-backup
 2. Create a private key on backup source host
+
     ```ssh-keygen -b 4096```
-3. Add the public key to Your backup target hosts authorized_keys
-4. Allow root to login over ssh only by using the created key
+3. Add the public key to Your backup target host's authorized_keys
+4. Create backup target pool on backup target host
+5. Allow root to login over ssh only by using the created key
 
     ```PermitRootLogin prohibit-password```
-5. Create crontab job ie. backup filesystem "materials" from pool "tank" to host  "backup-server" every 2nd hour. Remove snapshots after 360/(24/2) = 30 days. Send success/error messages to admin@example.com
+6. Create crontab job ie. backup filesystem "materials" from pool "tank" to host  "backup-server" every 2nd hour. Remove snapshots after 360/(24/2) = 30 days. Send success/error messages to admin@example.com
 
-    ```0 */2 * * * /usr/bin/python /home/zfssnapshots/zfs-snapshots/zfs-snapshots.py --pool tank --filesystem materials --snapshots 360 --backuphost root@backup-server --email admin@example.com```
+    ```0 */2 * * * /usr/bin/python /opt/zfs-backup/zfs-backup.py --pool tank --filesystem materials --snapshots 360 --backuphost root@backup-server --email admin@example.com```
 
 ## Arguments
     --pool [string]
