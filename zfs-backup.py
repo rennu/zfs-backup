@@ -190,16 +190,26 @@ def main():
             numDelete = len(localSnapshots) - numSnapshots
             for idx in range(0, numDelete):
                 destroySnapshot = localSnapshots[idx]
-                cmd = [zfsBin, 'destroy', destroySnapshot]
-                executeCommand(cmd)
+                # Double check snapshot name
+                if not re.search(r'@', destroySnapshot):
+                    logError("Backup Job Failed (" + hostname + "): Tried to destroy snapshot with incorrect name: " + destroySnapshot)
+                    sys.exit(1)
+                else:
+                    cmd = [zfsBin, 'destroy', destroySnapshot]
+                    executeCommand(cmd)
 
         # Prune remote snapshots according to --snapshot argument
         if len(remoteSnapshots) > numSnapshots:
             numDelete = len(remoteSnapshots) - numSnapshots
             for idx in range(0, numDelete):
                 destroySnapshot = remoteSnapshots[idx]
-                cmd = [sshBin, "-o", 'StrictHostKeyChecking no', backupHost, 'zfs', 'destroy', destroySnapshot]
-                executeCommand(cmd)
+                # Double check snapshot name
+                if not re.search(r'@', destroySnapshot):
+                    logError("Backup Job Failed (" + hostname + "): Tried to destroy snapshot with incorrect name: " + destroySnapshot)
+                    sys.exit(1)
+                else:
+                    cmd = [sshBin, "-o", 'StrictHostKeyChecking no', backupHost, 'zfs', 'destroy', destroySnapshot]
+                    executeCommand(cmd)
         
         # Hopefylly done!
         jobEndTime = int(time.time())
