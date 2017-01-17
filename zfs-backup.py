@@ -264,11 +264,12 @@ def main():
 # Get list of snapshots as a list
 def getSnapshots(snapshotBase, backupHost=""):
 
+    # snapshot]# zfs list -H -t snapshot -o name -s creation
+
     if backupHost != "":
-#        cmd = [sshBin, backupHost, 'zfs', 'list', '-t', 'snapshot']
-        cmd = [sshBin, backupHost, zfsBin, 'list', '-t', 'snapshot', '-o', 'name,creation', '-s', 'creation']
+        cmd = [sshBin, backupHost, zfsBin, 'list', '-H', '-t', 'snapshot', '-o', 'name', '-s', 'creation']
     else:
-        cmd = [zfsBin, 'list', '-t', 'snapshot', '-o', 'name,creation', '-s', 'creation']
+        cmd = [zfsBin, 'list', '-H', '-t', 'snapshot', '-o', 'name', '-s', 'creation']
         
     output = executeCommand(cmd)
 
