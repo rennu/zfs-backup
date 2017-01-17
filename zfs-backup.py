@@ -265,9 +265,10 @@ def main():
 def getSnapshots(snapshotBase, backupHost=""):
 
     if backupHost != "":
-        cmd = [sshBin, backupHost, 'zfs', 'list', '-t', 'snapshot']
+#        cmd = [sshBin, backupHost, 'zfs', 'list', '-t', 'snapshot']
+        cmd = [sshBin, backupHost, zfsBin, 'list', '-t', 'snapshot', '-o', 'name,creation', '-s', 'creation']
     else:
-        cmd = [zfsBin, 'list', '-t', 'snapshot']    
+        cmd = [zfsBin, 'list', '-t', 'snapshot', '-o', 'name,creation', '-s', 'creation']
         
     output = executeCommand(cmd)
 
