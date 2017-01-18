@@ -123,7 +123,7 @@ def main():
                     fp.close()
             
                     if len(procfile) > 2:
-                        if procfile[0] == "python" and os.path.basename(procfile[1]) == scriptName:
+                        if os.path.basename(procfile[0]) == "python" and os.path.basename(procfile[1]) == scriptName:
                     
                             optList2, bs = getopt.getopt(sys.argv[1:], '', options)
                             getOpt2 = optFinder(optList2)
