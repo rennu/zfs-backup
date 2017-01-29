@@ -35,13 +35,14 @@ def main():
         'smtp=',
         'sender=',
         'debug',
-        'only-errors'
+        'only-errors',
+        'help'
     ]
 
     optList, bs = getopt.getopt(sys.argv[1:], '', options)
     getOpt = optFinder(optList)
 
-    if getOpt.findKey('--pool') and getOpt.findKey('--backuphost'):
+    if getOpt.findKey('--pool') and getOpt.findKey('--backuphost') and not getOpt.findKey('--help'):
     
         # Set script name to be used later
         scriptName = os.path.basename(sys.argv[0])
@@ -179,7 +180,7 @@ def main():
         else:
             cmd = [zfsBin, 'send', snapshotNameActual, '|', sshBin, "-o", '"StrictHostKeyChecking no"', backupHost, 'zfs', 'recv', remoteSnapshotBase]
 
-        executeCommand(cmd, True) # Notice S for shell
+        executeCommand(cmd, True) # Need shell=True because of pipe
         
         # Update snapshot information
         localSnapshots = getSnapshots(localSnapshotBase)
