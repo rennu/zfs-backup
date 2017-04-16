@@ -1,11 +1,13 @@
 #!/usr/bin/python
 
+import subprocess, re, argparse, sys, json, os, time, platform, smtplib, math
+from email.mime.text import MIMEText
+
+# Configurables
 zfsBin = "/sbin/zfs"
 sshBin = "/usr/bin/ssh"
 
-import subprocess, re, getopt, sys, json, os, time, platform, smtplib, math
-from email.mime.text import MIMEText
-
+# Defaults
 debug = False
 emailAddress = ""
 hostname = platform.node()
@@ -13,6 +15,7 @@ smtpServer = "localhost"
 sender = "zfsbackup@" + hostname
 numSnapshots = 10
 onlyErrors = False
+cipher = ""
 
 def main():
 
@@ -25,68 +28,29 @@ def main():
 
     jobStartTime = int(time.time())
 
-    options = [
-        'pool=',
-        'targetpool=',
-        'filesystem=',
-        'snapshots=',
-        'backuphost=',
-        'email=',
-        'smtp=',
-        'sender=',
-        'debug',
-        'only-errors',
-        'help'
-    ]
+    args, scriptName = parseArgs()
 
-    optList, bs = getopt.getopt(sys.argv[1:], '', options)
-    getOpt = optFinder(optList)
+    # Set values from command line arguments
 
-    if getOpt.findKey('--pool') and getOpt.findKey('--backuphost') and not getOpt.findKey('--help'):
+    localPoolName = args.pool
+
+    targetPoolName = localPoolName
+    if args.targetpool != "":
+        targetPoolName = args.targetpool
+
+    backupHost = args.backuphost
     
-        # Set script name to be used later
-        scriptName = os.path.basename(sys.argv[0])
-        
-        # Get command line arguments
-        getOpt.findKey('--pool')
-        localPoolName = getOpt.optValue
+    filesystemName = args.filesystem
 
-        targetPoolName = localPoolName
-        if getOpt.findKey('--targetpool'):
-            targetPoolName = getOpt.optValue
-        
-        getOpt.findKey('--filesystem')
-        filesystemName = getOpt.optValue
-        
-        if getOpt.findKey('--snapshots'):
-            numSnapshots = getOpt.optValue
-            if numSnapshots != "":
-                try:
-                    numSnapshots = int(numSnapshots)
-                except ValueError:
-                    print "Error: Invalid --snapshots value"
-                    sys.exit()
-            else:
-                numSnapshots = 10
-        
-        getOpt.findKey('--backuphost')
-        backupHost = getOpt.optValue
-        
-        getOpt.findKey('--email')
-        emailAddress = getOpt.optValue
+    numSnapshots = args.snapshots
+    emailAddress = args.email
+    smtpServer = args.smtp
+    sender = args.sender
+    debug = args.debug
+    onlyErrors = args.only_errors
 
-        if getOpt.findKey('--smtp'):
-            smtpServer = getOpt.optValue
+    if localPoolName != "" and backupHost != "":
 
-        if getOpt.findKey('--sender'):
-            sender = getOpt.optValue
-
-        if getOpt.findKey('--debug'):
-            debug = True
-        
-        if getOpt.findKey('--only-errors'):
-            onlyErrors = True
-    
         # Base value for pool + filesystem combination
         localSnapshotBase = localPoolName
         remoteSnapshotBase = targetPoolName
@@ -100,7 +64,7 @@ def main():
         for filesystem in output:
             filesystem = re.sub("\s+", " ", filesystem).split(" ")[0]
             matchString = r'^' + localSnapshotBase + '$'
-            if re.match(matchString, filesystem):
+            if re.search(matchString, filesystem):
                 localSnapshotBaseExists = True
     
         if localSnapshotBaseExists == False:
@@ -120,23 +84,25 @@ def main():
                 pid = re.sub(r'\s+', " ", ps).split(" ")[1]
                 if pid != myPid:
                     fp = open("/proc/" + pid + "/cmdline", "r")
-                    procfile = fp.read().split("\x00")
+                    procfile = fp.read().strip()
                     fp.close()
-            
+
+                    procfile = procfile.split("\x00")
+
                     if len(procfile) > 2:
-                        if os.path.basename(procfile[0]) == "python" and os.path.basename(procfile[1]) == scriptName:
-                    
-                            optList2, bs = getopt.getopt(sys.argv[1:], '', options)
-                            getOpt2 = optFinder(optList2)
-                        
-                            getOpt2.findKey("--pool")
-                            tPool = getOpt2.optValue
-                            getOpt2.findKey("--filesystem")
-                            tFilesystem = getOpt2.optValue
-                            if tPool == localPoolName and tFilesystem == filesystemName:
-                                logError("Backup job cancelled (" + hostname + "): Duplicate job running", "Tried to run backup job but detected duplicate job\nAttempted command:\n" + " ".join(sys.argv))
-                                sys.exit(1)                    
-                
+
+                        sliceIdx = 1
+                        for i in procfile:
+                            if re.search(r'' + scriptName + '$', i):
+                                break
+                            sliceIdx += 1
+
+                        procArgs, scriptName2 = parseArgs(procfile[sliceIdx:-1])
+
+                        if procArgs.pool == localPoolName and procArgs.filesystem == filesystemName:
+                            logError("Backup job cancelled (" + hostname + "): Duplicate job running", "Tried to run backup job but detected duplicate job\nAttempted command:\n" + " ".join(sys.argv))
+                            sys.exit(1)                    
+
         # See if pool exists at the destination machine        
         cmd = [sshBin, "-o", 'StrictHostKeyChecking no', backupHost, 'zfs', 'list']
         output = executeCommand(cmd).split("\n")
@@ -176,9 +142,15 @@ def main():
 
         # Send backup to the backup host
         if isIncremental:
-            cmd = [zfsBin, 'send', '-i', fromSnapshot, snapshotNameActual, '|', sshBin, "-o", '"StrictHostKeyChecking no"', backupHost, 'zfs', 'recv', remoteSnapshotBase]
+            cmd = [zfsBin, 'send', '-i', fromSnapshot, snapshotNameActual, '|']
         else:
-            cmd = [zfsBin, 'send', snapshotNameActual, '|', sshBin, "-o", '"StrictHostKeyChecking no"', backupHost, 'zfs', 'recv', remoteSnapshotBase]
+            cmd = [zfsBin, 'send', snapshotNameActual, '|']
+
+        if cipher != "":
+            cmd += [sshBin, "-c", cipher, "-o", '"StrictHostKeyChecking no"', backupHost, 'zfs', 'recv', remoteSnapshotBase]
+        else:
+            cmd += [sshBin, "-o", '"StrictHostKeyChecking no"', backupHost, 'zfs', 'recv', remoteSnapshotBase]
+
 
         executeCommand(cmd, True) # Need shell=True because of pipe
         
@@ -222,45 +194,45 @@ def main():
         timeUsed = str(int(hours)) + "h " + str(int(minutes)) + "m " + str(int(seconds)) + "s"
 
         logError("Backup job completed successfully (" + hostname + ")", "Completed backing up on " + hostname + "\n\nBackup filesystem: " + localSnapshotBase + "\nSnapshot name: " + snapshotNameActual + "\nTask completion time: " + timeUsed, True)
-        
+
+
+
+def parseArgs(parseList = []):
+
+    # Create command line arguments parser
+    parser = argparse.ArgumentParser()
+
+    # Mandatory
+    parser.add_argument("--pool", required = True, 
+        help = "Name of the pool to be backed up")
+    parser.add_argument("--backuphost", required = True,
+        help = "Hostname or IP of the backup host")
+
+    # Optional
+    parser.add_argument("--targetpool", default = "",
+        help = "Name of the target pool on remote host")
+    parser.add_argument("--filesystem", default = "",
+        help = "Name of the filesystem to be backed up")
+    parser.add_argument("--snapshots", default = numSnapshots, type = int,
+        help = "Number of snapshots to keep before prune")
+    parser.add_argument("--email", nargs = "*", default = "",
+        help = "Receive error messages by email.")
+    parser.add_argument("--sender", default = sender,
+        help = "Set sender email for email messages")
+    parser.add_argument("--smtp", default = "localhost",
+        help = "SMTP server hostname")
+    parser.add_argument("--only-errors", action="store_true",
+        help = "Only report errors")
+    parser.add_argument("--cipher", default = "", 
+        help = "Use ssh cipher other than system default")
+    parser.add_argument("--debug", action="store_true",
+        help = "Print commands")
+
+    if len(parseList) > 0:
+        return parser.parse_args(parseList), parser.prog
     else:
-        print """
-            Required arguments:
-            
-            --pool [string]
-                Pool to backup ie. tank
-            
-            --targetpool [string] (optional)
-                On target host use different pool name
-                
-            --backuphost [username@hostname]
-                Also, you need to be able to login using ssh private key
-
-            --filesystem [string] (optional)
-                Filesystem to backup ie. midgets
-            
-            --snapshots [int] (optional)
-                Number of snapshots to keep
-                Default: 10
-                
-            --email user@host;user2@host2 (optional)
-                Send job related messages as email
-
-            --sender foo@bar
-                Email sender address
-                Default: zfsbackup@$hostname
-                
-            --smtp hostname (optional)
-                SMTP server address
-                Default: localhost
-
-            --only-errors
-                Only send a job report if job has failed
-            
-            --debug
-                Output all commands
-            
-        """
+        return parser.parse_args(), parser.prog
+    
 
 # Get list of snapshots as a list
 def getSnapshots(snapshotBase, backupHost=""):
@@ -280,7 +252,7 @@ def getSnapshots(snapshotBase, backupHost=""):
     snapshots = []
     snapshotSearchString = r'^' + snapshotBase + '@'
     for outputLine in output:
-        if re.match(snapshotSearchString, outputLine):
+        if re.search(snapshotSearchString, outputLine):
             snapshotName = outputLine.split(" ")[0]
             snapshots.append(snapshotName)
 
@@ -315,8 +287,6 @@ Body: %s
     smtp.sendmail(sender, emailAddress.split(";"), msg.as_string())
     smtp.quit()
 
-
-
 # Set shell = True when Popen shell=True is required
 def executeCommand(cmd, shell = False):
 
@@ -343,22 +313,5 @@ def executeCommand(cmd, shell = False):
     else:
         return output
 
-# Fugly command line option finder
-class optFinder:
-    optList = []
-    optValue = ""
-    
-    def __init__(self, *optList):
-        self.optList = optList
-    
-    def findKey(self, optKey):
-        self.optValue = ""
-        
-        for oKey, oValue in self.optList[0]:
-            if oKey == optKey:
-                self.optValue = oValue
-                return True
-                
-        return False
-        
+
 main()
