@@ -75,7 +75,7 @@ def main():
         localSnapshots = getSnapshots(localSnapshotBase)
 
         # Search for active processes with similar attributes to prevent running multiple instances
-        # of same job (ie. when running script automatically by crontab)
+        # of same job (ie. when running script automatically by crontab and one round takes more than 24 hours)
         psList = executeCommand(['ps', 'xauww']).split("\n")
         myPid = str(os.getpid())
         
@@ -84,10 +84,8 @@ def main():
                 pid = re.sub(r'\s+', " ", ps).split(" ")[1]
                 if pid != myPid:
                     fp = open("/proc/" + pid + "/cmdline", "r")
-                    procfile = fp.read().strip()
+                    procfile = fp.read().split("\x00")
                     fp.close()
-
-                    procfile = procfile.split("\x00")
 
                     if len(procfile) > 2:
 
@@ -281,10 +279,10 @@ Body: %s
     msg = MIMEText(body)
     msg['Subject'] = subject
     msg['From'] = sender
-    msg['To'] = emailAddress
+    msg['To'] = ';'.join(emailAddress)
     
     smtp = smtplib.SMTP(smtpServer)
-    smtp.sendmail(sender, emailAddress.split(";"), msg.as_string())
+    smtp.sendmail(sender, emailAddress, msg.as_string())
     smtp.quit()
 
 # Set shell = True when Popen shell=True is required

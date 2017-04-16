@@ -68,6 +68,10 @@ Simple ZFS incremental backup to remote host script with prune and job reporting
     
     --only-errors
         Only send a job report if job has failed
+
+    --cipher
+        Use ssh cipher other than system default
+        (aes256-gcm@openssh.com is pretty fast compared to anything)
     
     --debug
         Output all commands
