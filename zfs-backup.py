@@ -77,12 +77,23 @@ def main():
         # Search for active processes with similar attributes to prevent running multiple instances
         # of same job (ie. when running script automatically by crontab and one round takes more than 24 hours)
         psList = executeCommand(['ps', 'xauww']).split("\n")
+
         myPid = str(os.getpid())
-        
+        ppid = str(os.getppid())
+
+        wr = open("/tmp/ps", "w")
+        for i in psList:
+            wr.write(i + "\n")
+        wr.close()
+
         for ps in psList:
             if re.search(scriptName, ps):
                 pid = re.sub(r'\s+', " ", ps).split(" ")[1]
-                if pid != myPid:
+
+                # On some systems (probably due to crontabe) ps lists two entries for the script (child and parent).
+                # Therefore we compare pids and ppids
+                if pid != myPid and pid != ppid:
+
                     fp = open("/proc/" + pid + "/cmdline", "r")
                     procfile = fp.read().split("\x00")
                     fp.close()
