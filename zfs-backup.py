@@ -63,7 +63,7 @@ def main():
             if cipher in systemCiphers:
                 sshCmdBase = [sshBin, '-c', cipher]
             else:
-                logError("Backup job failed (" + hostname + ")", "User defined cipher \"" + cipher + "\" does not exist")
+                logError("Backup job failed (" + hostname + ")", "User defined cipher \"" + cipher + "\" is not available on the system.")
                 sys.exit()
         else:
             sshCmdBase = [sshBin]
