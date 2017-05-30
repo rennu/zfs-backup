@@ -17,6 +17,9 @@ numSnapshots = 10
 onlyErrors = False
 cipher = ""
 
+# Globals
+sshCmdBase = ""
+
 def main():
 
     global debug
@@ -25,6 +28,8 @@ def main():
     global sender
     global numSnapshots
     global onlyErrors
+    global cipher
+    global sshCmdBase
 
     jobStartTime = int(time.time())
 
@@ -48,8 +53,21 @@ def main():
     sender = args.sender
     debug = args.debug
     onlyErrors = args.only_errors
+    cipher = args.cipher
 
     if localPoolName != "" and backupHost != "":
+
+
+        if cipher != "":
+            systemCiphers = executeCommand([sshBin, '-Q', 'cipher']).split("\n")
+            if cipher in systemCiphers:
+                sshCmdBase = [sshBin, '-c', cipher]
+            else:
+                logError("Backup job failed (" + hostname + ")", "User defined cipher \"" + cipher + "\" does not exist")
+                sys.exit()
+        else:
+            sshCmdBase = [sshBin]
+
 
         # Base value for pool + filesystem combination
         localSnapshotBase = localPoolName
@@ -90,7 +108,7 @@ def main():
             if re.search(scriptName, ps):
                 pid = re.sub(r'\s+', " ", ps).split(" ")[1]
 
-                # On some systems (probably due to crontabe) ps lists two entries for the script (child and parent).
+                # On some systems (probably due to crontab) ps lists two entries for the script (child and parent).
                 # Therefore we compare pids and ppids
                 if pid != myPid and pid != ppid:
 
@@ -113,13 +131,14 @@ def main():
                             sys.exit(1)                    
 
         # See if pool exists at the destination machine        
-        cmd = [sshBin, "-o", 'StrictHostKeyChecking no', backupHost, 'zfs', 'list']
+        cmd = sshCmdBase + ["-o", 'StrictHostKeyChecking no', backupHost, 'zfs', 'list']
         output = executeCommand(cmd).split("\n")
         poolExists = False
         for outputLine in output:
             rPoolName = re.sub(r'\s+', " ", outputLine).split(" ")[0]
             if rPoolName == targetPoolName:
                 poolExists = True
+                break
         
         if poolExists == False:
             logError("Backup job failed (" + hostname + "): Target pool (" + targetPoolName + ") does not exist on remote machine", "Could not find target pool " + targetPoolName + " on backup target " + backupHost)
@@ -137,6 +156,7 @@ def main():
         for snapshot in localSnapshots:
             if snapshot == fromSnapshot:
                 isIncremental = True
+                break
         
         # Create a new snapshot
         snapshotTimestamp = time.strftime("%Y.%m.%d_%H.%M")
@@ -155,10 +175,7 @@ def main():
         else:
             cmd = [zfsBin, 'send', snapshotNameActual, '|']
 
-        if cipher != "":
-            cmd += [sshBin, "-c", cipher, "-o", '"StrictHostKeyChecking no"', backupHost, 'zfs', 'recv', remoteSnapshotBase]
-        else:
-            cmd += [sshBin, "-o", '"StrictHostKeyChecking no"', backupHost, 'zfs', 'recv', remoteSnapshotBase]
+        cmd += sshCmdBase + ['-o', '"StrictHostKeyChecking no"', backupHost, 'zfs', 'recv', remoteSnapshotBase]
 
 
         executeCommand(cmd, True) # Need shell=True because of pipe
@@ -190,7 +207,7 @@ def main():
                     logError("Backup Job Failed (" + hostname + "): Tried to destroy snapshot with incorrect name: " + destroySnapshot)
                     sys.exit(1)
                 else:
-                    cmd = [sshBin, "-o", 'StrictHostKeyChecking no', backupHost, 'zfs', 'destroy', destroySnapshot]
+                    cmd = sshCmdBase + ["-o", 'StrictHostKeyChecking no', backupHost, 'zfs', 'destroy', destroySnapshot]
                     executeCommand(cmd)
         
         # Hopefylly done!
@@ -235,7 +252,7 @@ def parseArgs(parseList = []):
     parser.add_argument("--cipher", default = "", 
         help = "Use ssh cipher other than system default")
     parser.add_argument("--debug", action="store_true",
-        help = "Print commands")
+        help = "Print commands while executing")
 
     if len(parseList) > 0:
         return parser.parse_args(parseList), parser.prog
@@ -249,7 +266,7 @@ def getSnapshots(snapshotBase, backupHost=""):
     # snapshot]# zfs list -H -t snapshot -o name -s creation
 
     if backupHost != "":
-        cmd = [sshBin, backupHost, zfsBin, 'list', '-H', '-t', 'snapshot', '-o', 'name', '-s', 'creation']
+        cmd = sshCmdBase + [backupHost, zfsBin, 'list', '-H', '-t', 'snapshot', '-o', 'name', '-s', 'creation']
     else:
         cmd = [zfsBin, 'list', '-H', '-t', 'snapshot', '-o', 'name', '-s', 'creation']
         
