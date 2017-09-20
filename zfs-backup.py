@@ -18,7 +18,8 @@ onlyErrors = False
 cipher = ""
 
 # Globals
-sshCmdBase = ""
+sshCmdBase = ['-o', 'StrictHostKeyChecking=no']
+cmdLog = []
 
 def main():
 
@@ -61,12 +62,12 @@ def main():
         if cipher != "":
             systemCiphers = executeCommand([sshBin, '-Q', 'cipher']).split("\n")
             if cipher in systemCiphers:
-                sshCmdBase = [sshBin, '-c', cipher]
+                sshCmdBase = [sshBin, '-c', cipher] + sshCmdBase
             else:
-                logError("Backup job failed (" + hostname + ")", "User defined cipher \"" + cipher + "\" is not available on the system.")
+                logError("Backup job failed ({0})".format(hostname), "User defined cipher \"{0}\" is not available on the system.".format(cipher))
                 sys.exit()
         else:
-            sshCmdBase = [sshBin]
+            sshCmdBase = [sshBin] + sshCmdBase
 
 
         # Base value for pool + filesystem combination
@@ -86,7 +87,7 @@ def main():
                 localSnapshotBaseExists = True
     
         if localSnapshotBaseExists == False:
-            logError("Backup job failed (" + hostname + ")", "Local snapshot filesystem / pool (" + localSnapshotBase + ") does not exist")
+            logError("Backup job failed ({0})".format(hostname), "Local snapshot filesystem / pool ({0}) does not exist".format(localSnapshotBase))
             sys.exit()
         
         # Get local snapshot list
@@ -127,11 +128,11 @@ def main():
                         procArgs, scriptName2 = parseArgs(procfile[sliceIdx:-1])
 
                         if procArgs.pool == localPoolName and procArgs.filesystem == filesystemName:
-                            logError("Backup job cancelled (" + hostname + "): Duplicate job running", "Tried to run backup job but detected duplicate job\nAttempted command:\n" + " ".join(sys.argv))
+                            logError("Backup job cancelled ({0}): Duplicate job running".format(hostname), "Tried to run backup job but detected duplicate job\nAttempted command:\n{0}".format(" ".join(sys.argv)))
                             sys.exit(1)                    
 
         # See if pool exists at the destination machine        
-        cmd = sshCmdBase + ["-o", 'StrictHostKeyChecking no', backupHost, 'zfs', 'list']
+        cmd = sshCmdBase + [backupHost, 'zfs', 'list']
         output = executeCommand(cmd).split("\n")
         poolExists = False
         for outputLine in output:
@@ -141,7 +142,7 @@ def main():
                 break
         
         if poolExists == False:
-            logError("Backup job failed (" + hostname + "): Target pool (" + targetPoolName + ") does not exist on remote machine", "Could not find target pool " + targetPoolName + " on backup target " + backupHost)
+            logError("Backup job failed ({0}): Target pool ({1}) does not exist on remote machine".format(hostname, targetPoolName), "Could not find target pool {0} on backup target {1}".format(targetPoolName, backupHost))
             sys.exit(1)
             
         # List remote snapshots to find snapshot to increment
@@ -175,7 +176,7 @@ def main():
         else:
             cmd = [zfsBin, 'send', snapshotNameActual, '|']
 
-        cmd += sshCmdBase + ['-o', '"StrictHostKeyChecking no"', backupHost, 'zfs', 'recv', remoteSnapshotBase]
+        cmd += sshCmdBase + [backupHost, 'zfs', 'recv', remoteSnapshotBase]
 
 
         executeCommand(cmd, True) # Need shell=True because of pipe
@@ -191,7 +192,7 @@ def main():
                 destroySnapshot = localSnapshots[idx]
                 # Double check snapshot name
                 if not re.search(r'@', destroySnapshot):
-                    logError("Backup Job Failed (" + hostname + "): Tried to destroy snapshot with incorrect name: " + destroySnapshot)
+                    logError("Backup Job Failed ({0}): Tried to destroy snapshot with incorrect name: {1}" .format(hostname, destroySnapshot))
                     sys.exit(1)
                 else:
                     cmd = [zfsBin, 'destroy', destroySnapshot]
@@ -204,10 +205,10 @@ def main():
                 destroySnapshot = remoteSnapshots[idx]
                 # Double check snapshot name
                 if not re.search(r'@', destroySnapshot):
-                    logError("Backup Job Failed (" + hostname + "): Tried to destroy snapshot with incorrect name: " + destroySnapshot)
+                    logError("Backup Job Failed ({0}): Tried to destroy snapshot with incorrect name: {1}".format(hostname, destroySnapshot))
                     sys.exit(1)
                 else:
-                    cmd = sshCmdBase + ["-o", 'StrictHostKeyChecking no', backupHost, 'zfs', 'destroy', destroySnapshot]
+                    cmd = sshCmdBase + [backupHost, 'zfs', 'destroy', destroySnapshot]
                     executeCommand(cmd)
         
         # Hopefylly done!
@@ -219,7 +220,7 @@ def main():
 
         timeUsed = str(int(hours)) + "h " + str(int(minutes)) + "m " + str(int(seconds)) + "s"
 
-        logError("Backup job completed successfully (" + hostname + ")", "Completed backing up on " + hostname + "\n\nBackup filesystem: " + localSnapshotBase + "\nSnapshot name: " + snapshotNameActual + "\nTask completion time: " + timeUsed, True)
+        logError("Backup job completed successfully ({0})".format(hostname), "Completed backing up on {0}\n\nBackup filesystem: {1}\nSnapshot name: {2}\nTask completion time: {3}".format(hostname, localSnapshotBase, snapshotNameActual, timeUsed), True)
 
 
 
@@ -299,10 +300,17 @@ def sendMail(emailAddress, subject, body):
 
     if debug:
         print """
-To: %s
-Subject: %s
-Body: %s
-""" % (emailAddress, subject, body)
+To: {0}
+Subject: {1}
+Body: {2}
+Commands:
+# {3}
+""".format(emailAddress, subject, body, '\n# '.join(cmdLog))
+
+    body += """
+Commands:
+# {0}
+""".format('\n# '.join(cmdLog))
 
     msg = MIMEText(body)
     msg['Subject'] = subject
@@ -314,9 +322,13 @@ Body: %s
     smtp.quit()
 
 # Set shell = True when Popen shell=True is required
+# Needed for |
 def executeCommand(cmd, shell = False):
 
+    global cmdLog
+
     cmdJoined = ' '.join(cmd)
+    cmdLog.append(cmdJoined)
 
     if debug == True:
         print cmdJoined
