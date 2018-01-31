@@ -340,13 +340,13 @@ def executeCommand(cmd, shell = False):
             p = subprocess.Popen(cmdJoined, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
 
     except OSError as e:
-        logError("Backup failed (" + hostname + ")", "Could not execute command:\"" + cmdJoined + "\n" + str(e))
+        logError("Backup failed ({0})".format(hostname), "Could not execute command: {0}\n{1}".format(cmdJoined, e))
         sys.exit(1)
         
     output, errors = p.communicate()
 
     if p.returncode != 0:
-        logError("Backup failed (" + hostname + ")", "Could not execute command:\n" + cmdJoined + "\n\nOutput:\n" + errors)
+        logError("Backup failed ({0})".format(hostname), "Could not execute command: {0}\n\nOutput:\n{1}".format(cmdJoined, errors))
         sys.exit(1)
     else:
         return output
